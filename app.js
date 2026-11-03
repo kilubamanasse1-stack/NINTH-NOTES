@@ -56,61 +56,87 @@ window.addEventListener("beforeunload",e=>{if(recorder&&recorder.state!=="inacti
 (async()=>{try{db=await openDB();await renderCourses();await registerSW()}catch(e){alert("Le stockage local n'a pas pu démarrer : "+e.message)}if(!navigator.onLine)$("offlineState").textContent="● Hors ligne";window.addEventListener("online",()=>$("offlineState").textContent="● Prêt");window.addEventListener("offline",()=>$("offlineState").textContent="● Hors ligne")})();
 
 
-/* TRANSCRIPTION LOCALE — aucun fichier audio n'est envoyé à un serveur applicatif. */
-let localPipelinePromise=null, currentTranscriptionAbort=false;
+/* TRANSCRIPTION LOCALE — traitement sur l'appareil, sans envoi de l'audio. */
+let localPipelinePromise=null;
 async function loadLocalTranscriber(){
   if(localPipelinePromise)return localPipelinePromise;
-  $("transcriptionState").textContent="Chargement du moteur…";
+  $("transcriptionState").textContent="Chargement du moteur vocal…";
   localPipelinePromise=(async()=>{
     const mod=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2");
     mod.env.useBrowserCache=true;
     mod.env.allowRemoteModels=true;
-    return await mod.pipeline("automatic-speech-recognition","onnx-community/whisper-tiny",{progress_callback:p=>{
-      if(p.status==="progress"&&p.total)$("transcriptionState").textContent="Téléchargement du modèle "+Math.round(p.progress||0)+" %";
-      else if(p.status==="done")$("transcriptionState").textContent="Modèle chargé";
-    }});
+    return await mod.pipeline("automatic-speech-recognition","onnx-community/whisper-tiny",{
+      dtype:"q8",
+      progress_callback:p=>{
+        if(p.status==="progress"&&p.total)$("transcriptionState").textContent="Téléchargement du modèle "+Math.round(p.progress||0)+" %";
+        else if(p.status==="done")$("transcriptionState").textContent="Modèle vocal prêt";
+      }
+    });
   })().catch(err=>{localPipelinePromise=null;throw err});
   return localPipelinePromise;
 }
+/* Décodage en mono 16 kHz : évite de conserver plusieurs grandes copies PCM. */
 async function audioTo16k(blob){
   const Ctx=window.AudioContext||window.webkitAudioContext;
   if(!Ctx)throw new Error("Décodage audio indisponible sur ce navigateur.");
   const ctx=new Ctx();
   try{
     const buffer=await ctx.decodeAudioData(await blob.arrayBuffer());
-    const channels=buffer.numberOfChannels, length=buffer.length;
-    const mono=new Float32Array(length);
-    for(let c=0;c<channels;c++){const data=buffer.getChannelData(c);for(let i=0;i<length;i++)mono[i]+=data[i]/channels}
-    const rate=16000, outLength=Math.ceil(mono.length*rate/buffer.sampleRate), out=new Float32Array(outLength), ratio=buffer.sampleRate/rate;
-    for(let i=0;i<outLength;i++){const pos=i*ratio,left=Math.floor(pos),frac=pos-left;out[i]=mono[left]*(1-frac)+(mono[Math.min(left+1,mono.length-1)]||0)*frac}
+    const rate=16000, outLength=Math.ceil(buffer.length*rate/buffer.sampleRate);
+    const out=new Float32Array(outLength), ratio=buffer.sampleRate/rate;
+    const channels=buffer.numberOfChannels;
+    for(let i=0;i<outLength;i++){
+      const pos=i*ratio,left=Math.floor(pos),frac=pos-left;
+      let sample=0;
+      for(let c=0;c<channels;c++){
+        const data=buffer.getChannelData(c);
+        sample+=(data[left]||0)*(1-frac)+(data[Math.min(left+1,buffer.length-1)]||0)*frac;
+      }
+      out[i]=sample/channels;
+    }
     return out;
   }finally{await ctx.close()}
 }
+const waitForUI=()=>new Promise(resolve=>setTimeout(resolve,30));
 async function transcribeActiveCourse(){
   const item=await getOne(activeCourseId);if(!item)return;
   if(!item.audio){alert("Aucun enregistrement audio n'est associé à ce cours.");return}
-  const btn=$("transcribeBtn");btn.disabled=true;currentTranscriptionAbort=false;
+  const btn=$("transcribeBtn");btn.disabled=true;
   try{
     btn.textContent="Préparation de l'audio…";
+    $("transcriptionState").textContent="Conversion audio en cours";
     const audio=await audioTo16k(item.audio);
-    btn.textContent="Chargement du modèle local…";
+    await waitForUI();
+    btn.textContent="Chargement du modèle léger…";
     const transcriber=await loadLocalTranscriber();
-    btn.textContent="Transcription en cours…";
-    const result=await transcriber(audio,{sampling_rate:16000,chunk_length_s:30,stride_length_s:5,language:"french",task:"transcribe"});
-    const textResult=Array.isArray(result)?result.map(x=>x.text||"").join("\n"):result.text||"";
+    const segmentSeconds=24, overlapSeconds=1, samplesPerSegment=segmentSeconds*16000;
+    const overlap=overlapSeconds*16000, pieces=[];
+    const total=Math.ceil(audio.length/samplesPerSegment);
+    for(let offset=0,index=0;offset<audio.length;offset+=samplesPerSegment-overlap,index++){
+      const end=Math.min(audio.length,offset+samplesPerSegment);
+      const segment=audio.slice(offset,end);
+      btn.textContent="Transcription "+(index+1)+" / "+total+"…";
+      $("transcriptionState").textContent="Partie "+(index+1)+" sur "+total+" · garde Safari ouvert";
+      await waitForUI();
+      const result=await transcriber(segment,{sampling_rate:16000,language:"french",task:"transcribe"});
+      const piece=Array.isArray(result)?result.map(x=>x.text||"").join(" "):(result.text||"");
+      if(piece.trim())pieces.push(piece.trim());
+      if(end>=audio.length)break;
+    }
+    const textResult=pieces.join("\n\n");
     if(!textResult.trim())throw new Error("Aucune parole n'a pu être reconnue. Vérifie la qualité de l'audio.");
     const existing=$("transcript").value.trim();
     $("transcript").value=existing?existing+"\n\n"+textResult:textResult;
     item.transcript=$("transcript").value;await put(item);
-    $("transcriptionState").textContent="Transcription terminée";
+    $("transcriptionState").textContent="Transcription terminée et sauvegardée";
     alert("Transcription terminée et enregistrée sur cet appareil. Relis les noms propres et les termes techniques.");
   }catch(err){
-    $("transcriptionState").textContent="Transcription indisponible";
-    alert("La transcription n'a pas abouti : "+(err.message||err)+"\n\nLe modèle nécessite une première connexion pour être téléchargé. Sur iPhone X, le traitement peut être lent ou limité par la mémoire.");
+    $("transcriptionState").textContent="Transcription interrompue";
+    const detail=err?.message||String(err);
+    alert("La transcription n'a pas abouti : "+detail+"\n\nVérifie que le premier téléchargement du modèle est terminé et que Safari dispose d'assez de mémoire. Ton audio original reste enregistré.");
   }finally{btn.disabled=false;btn.textContent="✦ Transcrire sur cet appareil"}
 }
 $("transcribeBtn").onclick=transcribeActiveCourse;
-
 
 function courseDocumentHtml(item){
   const esc=s=>String(s??"").replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
