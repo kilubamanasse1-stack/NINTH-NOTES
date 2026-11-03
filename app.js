@@ -9,7 +9,7 @@ function put(item){return new Promise((res,rej)=>{const r=tx("readwrite").put(it
 function getAll(){return new Promise((res,rej)=>{const r=tx().getAll();r.onsuccess=()=>res(r.result.sort((a,b)=>b.createdAt-a.createdAt));r.onerror=()=>rej(r.error)})}
 function getOne(id){return new Promise((res,rej)=>{const r=tx().get(id);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 function remove(id){return new Promise((res,rej)=>{const r=tx("readwrite").delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
-function updateTimer(){const sec=Math.floor((elapsedBeforePause+(recorder&&!recorder.paused?(Date.now()-startedAt)/1000:0)));$("timer").textContent=[Math.floor(sec/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,"0")).join(":")}
+function updateTimer(){const sec=Math.floor(elapsedBeforePause+(recorder&&recorder.state==="recording"?(Date.now()-startedAt)/1000:0));$("timer").textContent=[Math.floor(sec/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,"0")).join(":")}
 function setRecordingUI(state){$("startBtn").disabled=state!=="idle";$("pauseBtn").disabled=state!=="recording"&&state!=="paused";$("stopBtn").disabled=state==="idle";$("pauseBtn").textContent=state==="paused"?"▶ Reprendre":"Ⅱ Pause";$("recordDot").classList.toggle("live",state==="recording");$("recordHint").textContent=state==="recording"?"Enregistrement en cours":state==="paused"?"Enregistrement en pause":"Prêt à enregistrer"}
 async function startRecording(){
   const subject=$("subject").value.trim(); if(!subject){alert("Indique d'abord la matière.");$("subject").focus();return}
@@ -33,14 +33,14 @@ async function startRecording(){
   }catch(err){alert("Impossible d'accéder au microphone. Vérifie les autorisations de Safari. "+err.message)}
 }
 function pauseRecording(){if(!recorder)return;if(recorder.state==="recording"){recorder.pause();elapsedBeforePause+=(Date.now()-startedAt)/1000;setRecordingUI("paused")}else if(recorder.state==="paused"){recorder.resume();startedAt=Date.now();setRecordingUI("recording")}updateTimer()}
-function stopRecording(){if(recorder&&recorder.state!=="inactive"){recorder.stop();}}
+function stopRecording(){if(recorder&&recorder.state!=="inactive"){if(recorder.state==="recording")elapsedBeforePause+=(Date.now()-startedAt)/1000;recorder.stop();}}
 async function renderCourses(){
   const items=await getAll(), q=$("search").value.toLowerCase();$("courseCount").textContent=items.length;
   const filtered=items.filter(x=>(x.subject+" "+x.title).toLowerCase().includes(q));const list=$("courseList");list.innerHTML="";
   if(!filtered.length){list.innerHTML='<div class="empty">Aucun cours trouvé.</div>';return}
   for(const item of filtered){const el=document.createElement("div");el.className="course-item";const info=document.createElement("div");const strong=document.createElement("strong");strong.textContent=item.title;const small=document.createElement("small");small.textContent=item.subject+" · "+fmtDate(item.createdAt)+" · "+durationText(item.duration);info.append(strong,small);const btn=document.createElement("button");btn.className="btn btn-outline";btn.textContent="Ouvrir";btn.onclick=()=>openCourse(item.id);el.append(info,btn);list.append(el)}
 }
-function durationText(s){s=s||0;return Math.floor(s/60)+" min"}
+function durationText(s){s=Math.max(0,Math.floor(s||0));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;if(h)return h+" h "+m+" min";if(m)return m+" min "+r+" s";return r+" s"}
 async function openCourse(id){const item=await getOne(id);if(!item)return;activeCourseId=id;$("dialogTitle").textContent=item.title;$("dialogMeta").textContent=item.subject+" · "+fmtDate(item.createdAt)+" · "+durationText(item.duration);$("transcript").value=item.transcript||"";$("courseDialog").showModal()}
 async function saveTranscript(){const item=await getOne(activeCourseId);if(!item)return;item.transcript=$("transcript").value;await put(item);alert("Notes enregistrées.");await renderCourses()}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
@@ -54,3 +54,99 @@ async function registerSW(){if("serviceWorker"in navigator){try{await navigator.
 $("startBtn").onclick=startRecording;$("pauseBtn").onclick=pauseRecording;$("stopBtn").onclick=stopRecording;$("search").oninput=renderCourses;$("refreshBtn").onclick=renderCourses;$("closeDialog").onclick=()=>$("courseDialog").close();$("saveTranscript").onclick=saveTranscript;$("exportText").onclick=exportTxt;$("exportCourse").onclick=exportJson;$("exportAudio").onclick=exportAudio;$("deleteCourse").onclick=deleteCourse;
 window.addEventListener("beforeunload",e=>{if(recorder&&recorder.state!=="inactive"){e.preventDefault();e.returnValue=""}});
 (async()=>{try{db=await openDB();await renderCourses();await registerSW()}catch(e){alert("Le stockage local n'a pas pu démarrer : "+e.message)}if(!navigator.onLine)$("offlineState").textContent="● Hors ligne";window.addEventListener("online",()=>$("offlineState").textContent="● Prêt");window.addEventListener("offline",()=>$("offlineState").textContent="● Hors ligne")})();
+
+
+/* TRANSCRIPTION LOCALE — aucun fichier audio n'est envoyé à un serveur applicatif. */
+let localPipelinePromise=null, currentTranscriptionAbort=false;
+async function loadLocalTranscriber(){
+  if(localPipelinePromise)return localPipelinePromise;
+  $("transcriptionState").textContent="Chargement du moteur…";
+  localPipelinePromise=(async()=>{
+    const mod=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2");
+    mod.env.useBrowserCache=true;
+    mod.env.allowRemoteModels=true;
+    return await mod.pipeline("automatic-speech-recognition","onnx-community/whisper-tiny",{progress_callback:p=>{
+      if(p.status==="progress"&&p.total)$("transcriptionState").textContent="Téléchargement du modèle "+Math.round(p.progress||0)+" %";
+      else if(p.status==="done")$("transcriptionState").textContent="Modèle chargé";
+    }});
+  })().catch(err=>{localPipelinePromise=null;throw err});
+  return localPipelinePromise;
+}
+async function audioTo16k(blob){
+  const Ctx=window.AudioContext||window.webkitAudioContext;
+  if(!Ctx)throw new Error("Décodage audio indisponible sur ce navigateur.");
+  const ctx=new Ctx();
+  try{
+    const buffer=await ctx.decodeAudioData(await blob.arrayBuffer());
+    const channels=buffer.numberOfChannels, length=buffer.length;
+    const mono=new Float32Array(length);
+    for(let c=0;c<channels;c++){const data=buffer.getChannelData(c);for(let i=0;i<length;i++)mono[i]+=data[i]/channels}
+    const rate=16000, outLength=Math.ceil(mono.length*rate/buffer.sampleRate), out=new Float32Array(outLength), ratio=buffer.sampleRate/rate;
+    for(let i=0;i<outLength;i++){const pos=i*ratio,left=Math.floor(pos),frac=pos-left;out[i]=mono[left]*(1-frac)+(mono[Math.min(left+1,mono.length-1)]||0)*frac}
+    return out;
+  }finally{await ctx.close()}
+}
+async function transcribeActiveCourse(){
+  const item=await getOne(activeCourseId);if(!item)return;
+  if(!item.audio){alert("Aucun enregistrement audio n'est associé à ce cours.");return}
+  const btn=$("transcribeBtn");btn.disabled=true;currentTranscriptionAbort=false;
+  try{
+    btn.textContent="Préparation de l'audio…";
+    const audio=await audioTo16k(item.audio);
+    btn.textContent="Chargement du modèle local…";
+    const transcriber=await loadLocalTranscriber();
+    btn.textContent="Transcription en cours…";
+    const result=await transcriber(audio,{sampling_rate:16000,chunk_length_s:30,stride_length_s:5,language:"french",task:"transcribe"});
+    const textResult=Array.isArray(result)?result.map(x=>x.text||"").join("\n"):result.text||"";
+    if(!textResult.trim())throw new Error("Aucune parole n'a pu être reconnue. Vérifie la qualité de l'audio.");
+    const existing=$("transcript").value.trim();
+    $("transcript").value=existing?existing+"\n\n"+textResult:textResult;
+    item.transcript=$("transcript").value;await put(item);
+    $("transcriptionState").textContent="Transcription terminée";
+    alert("Transcription terminée et enregistrée sur cet appareil. Relis les noms propres et les termes techniques.");
+  }catch(err){
+    $("transcriptionState").textContent="Transcription indisponible";
+    alert("La transcription n'a pas abouti : "+(err.message||err)+"\n\nLe modèle nécessite une première connexion pour être téléchargé. Sur iPhone X, le traitement peut être lent ou limité par la mémoire.");
+  }finally{btn.disabled=false;btn.textContent="✦ Transcrire sur cet appareil"}
+}
+$("transcribeBtn").onclick=transcribeActiveCourse;
+
+
+function courseDocumentHtml(item){
+  const esc=s=>String(s??"").replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+  const lines=esc(item.transcript||"Aucune transcription saisie.").replace(/\n/g,"<br>");
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(item.title)}</title><style>
+  @page{size:A4;margin:22mm}body{font-family:Arial,sans-serif;color:#222;line-height:1.65;font-size:11pt}h1{font-family:Georgia,serif;font-size:24pt;margin:0 0 8pt;color:#252525}h2{font-size:13pt;border-bottom:1px solid #b28a3b;padding-bottom:5pt;margin-top:24pt}.brand{color:#9b762f;letter-spacing:3px;font-size:9pt;font-weight:bold;margin-bottom:24pt}.meta{color:#555;font-size:10pt;border-left:3px solid #b28a3b;padding:8pt 12pt;margin:18pt 0 25pt}.transcript{white-space:normal;overflow-wrap:anywhere}footer{margin-top:35pt;padding-top:8pt;border-top:1px solid #ddd;color:#888;font-size:9pt}</style></head><body>
+  <div class="brand">9TH NOTE · RECORD · TRANSCRIBE · LEARN</div><h1>${esc(item.title)}</h1>
+  <div class="meta"><b>Matière :</b> ${esc(item.subject)}<br><b>Date :</b> ${esc(fmtDate(item.createdAt))}<br><b>Durée :</b> ${esc(durationText(item.duration))}</div>
+  <h2>TRANSCRIPTION DU COURS</h2><div class="transcript">${lines}</div><footer>Document créé avec 9TH NOTE · Tes cours restent à toi.</footer></body></html>`;
+}
+async function exportPdf(){
+  const item=await getOne(activeCourseId);if(!item)return;
+  const win=window.open("","_blank");
+  if(!win){alert("Safari a bloqué la fenêtre. Autorise les fenêtres surgissantes puis réessaie.");return}
+  win.document.open();win.document.write(courseDocumentHtml(item));win.document.close();
+  setTimeout(()=>{try{win.focus();win.print()}catch(e){alert("Ouvre le menu de partage/impression de Safari pour enregistrer en PDF.")}},500);
+}
+async function exportWord(){
+  const item=await getOne(activeCourseId);if(!item)return;
+  try{
+    const {Document,Packer,Paragraph,TextRun,HeadingLevel}=await import("https://cdn.jsdelivr.net/npm/docx@8.5.0/+esm");
+    const paragraphs=[
+      new Paragraph({text:"9TH NOTE",heading:HeadingLevel.HEADING_2}),
+      new Paragraph({text:item.title,heading:HeadingLevel.TITLE}),
+      new Paragraph({children:[new TextRun({text:"Matière : ",bold:true}),new TextRun(item.subject)]}),
+      new Paragraph({children:[new TextRun({text:"Date : ",bold:true}),new TextRun(fmtDate(item.createdAt))]}),
+      new Paragraph({children:[new TextRun({text:"Durée : ",bold:true}),new TextRun(durationText(item.duration))]}),
+      new Paragraph({text:"TRANSCRIPTION DU COURS",heading:HeadingLevel.HEADING_1})
+    ];
+    const body=(item.transcript||"Aucune transcription saisie.").split(/\r?\n/);
+    for(const line of body)paragraphs.push(new Paragraph({children:[new TextRun(line||" ")]}));
+    paragraphs.push(new Paragraph({text:"Document créé avec 9TH NOTE · Tes cours restent à toi."}));
+    const doc=new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,right:1134,bottom:1134,left:1134}}},children:paragraphs}]});
+    const blob=await Packer.toBlob(doc);
+    await shareOrDownload(blob,safeName(item.title)+".docx");
+  }catch(err){alert("Impossible de créer le document Word. Vérifie la connexion Internet pour charger le module DOCX. "+(err.message||err))}
+}
+$("exportPdf").onclick=exportPdf;
+$("exportWord").onclick=exportWord;
