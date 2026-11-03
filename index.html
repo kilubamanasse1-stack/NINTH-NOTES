@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101010">
+  <meta name="description" content="9TH NOTE — enregistre et organise tes cours, même hors ligne.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>9TH NOTE</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">J</div><div><strong>9TH NOTE</strong><small>RECORD · TRANSCRIBE · LEARN</small></div></div>
+    <span id="offlineState" class="status">● Hors ligne prêt</span>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">TON ESPACE D'ÉTUDE</p>
+        <h1>Chaque cours<br><span>compte.</span></h1>
+        <p class="muted">Enregistre, conserve et organise tes cours sur ton appareil.</p>
+      </div>
+      <div class="hero-orb">9</div>
+    </section>
+
+    <section class="panel recorder">
+      <div class="section-heading"><div><p class="eyebrow">NOUVEL ENREGISTREMENT</p><h2>Capturer un cours</h2></div><span class="mic-icon">◉</span></div>
+      <label for="subject">Matière / cours</label>
+      <input id="subject" maxlength="80" placeholder="Ex. : Anatomie, Biologie…">
+      <label for="courseTitle">Titre (facultatif)</label>
+      <input id="courseTitle" maxlength="100" placeholder="Ex. : Introduction au système nerveux">
+      <div class="record-display">
+        <div id="recordDot" class="record-dot"></div>
+        <div><strong id="timer">00:00:00</strong><small id="recordHint">Prêt à enregistrer</small></div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="btn btn-gold">● Démarrer</button>
+        <button id="pauseBtn" class="btn btn-dark" disabled>Ⅱ Pause</button>
+        <button id="stopBtn" class="btn btn-outline" disabled>■ Terminer</button>
+      </div>
+      <p class="fineprint">Autorise l'accès au microphone. Garde Safari ouvert pendant l'enregistrement : iOS peut suspendre une page en arrière-plan ou écran verrouillé.</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading"><div><p class="eyebrow">TA BIBLIOTHÈQUE</p><h2>Mes cours <span id="courseCount" class="count">0</span></h2></div>
+        <button id="refreshBtn" class="icon-btn" aria-label="Actualiser">↻</button>
+      </div>
+      <input id="search" class="search" placeholder="Rechercher une matière ou un cours…">
+      <div id="courseList" class="course-list"><div class="empty">Aucun cours enregistré pour le moment.</div></div>
+    </section>
+
+    <section class="panel privacy">
+      <div class="privacy-icon">◆</div>
+      <div><strong>Privé par conception</strong><p>Les cours sont stockés dans le navigateur de cet appareil. Aucun serveur de transcription n'est utilisé par cette version.</p></div>
+    </section>
+  </main>
+
+  <dialog id="courseDialog">
+    <div class="dialog-head"><div><p class="eyebrow">DÉTAIL DU COURS</p><h2 id="dialogTitle">Mon cours</h2></div><button id="closeDialog" class="icon-btn">✕</button></div>
+    <div id="dialogMeta" class="muted meta"></div>
+    <label for="transcript">Transcription / notes</label>
+    <textarea id="transcript" rows="12" placeholder="Colle ou saisis ici la transcription du cours. La transcription automatique hors ligne sera ajoutée avec le moteur vocal local."></textarea>
+    <div class="dialog-actions">
+      <button id="saveTranscript" class="btn btn-gold">Enregistrer les notes</button>
+      <button id="exportText" class="btn btn-dark">Exporter TXT</button>
+      <button id="exportCourse" class="btn btn-dark">Partager le cours</button>
+      <button id="exportAudio" class="btn btn-outline">Partager l'audio</button>
+      <button id="deleteCourse" class="btn btn-danger">Supprimer</button>
+    </div>
+    <p class="fineprint">« Partager le cours » exporte les informations et les notes en fichier JSON. Pour transmettre aussi l'enregistrement, partage également le fichier audio.</p>
+  </dialog>
+
+  <footer>9TH NOTE <span>·</span> Tes cours restent à toi.</footer>
+  <script src="app.js"></script>
+</body>
+</html>
