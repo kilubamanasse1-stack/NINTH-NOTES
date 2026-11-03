@@ -13,8 +13,8 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><div class="brand-mark">J</div><div><strong>9TH NOTE</strong><small>RECORD · TRANSCRIBE · LEARN</small></div></div>
-    <span id="offlineState" class="status">● Hors ligne prêt</span>
+    <div class="brand"><div class="brand-mark">9</div><div><strong>9TH NOTE</strong><small>RECORD · TRANSCRIBE · LEARN</small></div></div>
+    <span id="offlineState" class="status">● Application prête</span>
   </header>
 
   <main>
@@ -62,8 +62,10 @@
   <dialog id="courseDialog">
     <div class="dialog-head"><div><p class="eyebrow">DÉTAIL DU COURS</p><h2 id="dialogTitle">Mon cours</h2></div><button id="closeDialog" class="icon-btn">✕</button></div>
     <div id="dialogMeta" class="muted meta"></div>
-    <label for="transcript">Transcription / notes</label>
-    <textarea id="transcript" rows="12" placeholder="Colle ou saisis ici la transcription du cours. La transcription automatique hors ligne sera ajoutée avec le moteur vocal local."></textarea>
+    <div class="transcription-head"><label for="transcript">Transcription complète / notes</label><span id="transcriptionState" class="model-state">Moteur local non chargé</span></div>
+    <p class="fineprint">La transcription se lance après l'enregistrement. Le modèle vocal est téléchargé lors de la première utilisation ; son fonctionnement sans connexion dépend de la conservation du cache par iOS.</p>
+    <button id="transcribeBtn" class="btn btn-gold transcribe-btn">✦ Transcrire sur cet appareil</button>
+    <textarea id="transcript" rows="12" placeholder="La transcription apparaîtra ici. Tu pourras la corriger et l'enregistrer."></textarea>
     <div class="dialog-actions">
       <button id="saveTranscript" class="btn btn-gold">Enregistrer les notes</button>
       <button id="exportText" class="btn btn-dark">Exporter TXT</button>
