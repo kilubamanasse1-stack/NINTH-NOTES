@@ -110,3 +110,43 @@ async function transcribeActiveCourse(){
   }finally{btn.disabled=false;btn.textContent="✦ Transcrire sur cet appareil"}
 }
 $("transcribeBtn").onclick=transcribeActiveCourse;
+
+
+function courseDocumentHtml(item){
+  const esc=s=>String(s??"").replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+  const lines=esc(item.transcript||"Aucune transcription saisie.").replace(/\n/g,"<br>");
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(item.title)}</title><style>
+  @page{size:A4;margin:22mm}body{font-family:Arial,sans-serif;color:#222;line-height:1.65;font-size:11pt}h1{font-family:Georgia,serif;font-size:24pt;margin:0 0 8pt;color:#252525}h2{font-size:13pt;border-bottom:1px solid #b28a3b;padding-bottom:5pt;margin-top:24pt}.brand{color:#9b762f;letter-spacing:3px;font-size:9pt;font-weight:bold;margin-bottom:24pt}.meta{color:#555;font-size:10pt;border-left:3px solid #b28a3b;padding:8pt 12pt;margin:18pt 0 25pt}.transcript{white-space:normal;overflow-wrap:anywhere}footer{margin-top:35pt;padding-top:8pt;border-top:1px solid #ddd;color:#888;font-size:9pt}</style></head><body>
+  <div class="brand">9TH NOTE · RECORD · TRANSCRIBE · LEARN</div><h1>${esc(item.title)}</h1>
+  <div class="meta"><b>Matière :</b> ${esc(item.subject)}<br><b>Date :</b> ${esc(fmtDate(item.createdAt))}<br><b>Durée :</b> ${esc(durationText(item.duration))}</div>
+  <h2>TRANSCRIPTION DU COURS</h2><div class="transcript">${lines}</div><footer>Document créé avec 9TH NOTE · Tes cours restent à toi.</footer></body></html>`;
+}
+async function exportPdf(){
+  const item=await getOne(activeCourseId);if(!item)return;
+  const win=window.open("","_blank");
+  if(!win){alert("Safari a bloqué la fenêtre. Autorise les fenêtres surgissantes puis réessaie.");return}
+  win.document.open();win.document.write(courseDocumentHtml(item));win.document.close();
+  setTimeout(()=>{try{win.focus();win.print()}catch(e){alert("Ouvre le menu de partage/impression de Safari pour enregistrer en PDF.")}},500);
+}
+async function exportWord(){
+  const item=await getOne(activeCourseId);if(!item)return;
+  try{
+    const {Document,Packer,Paragraph,TextRun,HeadingLevel}=await import("https://cdn.jsdelivr.net/npm/docx@8.5.0/+esm");
+    const paragraphs=[
+      new Paragraph({text:"9TH NOTE",heading:HeadingLevel.HEADING_2}),
+      new Paragraph({text:item.title,heading:HeadingLevel.TITLE}),
+      new Paragraph({children:[new TextRun({text:"Matière : ",bold:true}),new TextRun(item.subject)]}),
+      new Paragraph({children:[new TextRun({text:"Date : ",bold:true}),new TextRun(fmtDate(item.createdAt))]}),
+      new Paragraph({children:[new TextRun({text:"Durée : ",bold:true}),new TextRun(durationText(item.duration))]}),
+      new Paragraph({text:"TRANSCRIPTION DU COURS",heading:HeadingLevel.HEADING_1})
+    ];
+    const body=(item.transcript||"Aucune transcription saisie.").split(/\r?\n/);
+    for(const line of body)paragraphs.push(new Paragraph({children:[new TextRun(line||" ")]}));
+    paragraphs.push(new Paragraph({text:"Document créé avec 9TH NOTE · Tes cours restent à toi."}));
+    const doc=new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,right:1134,bottom:1134,left:1134}}},children:paragraphs}]});
+    const blob=await Packer.toBlob(doc);
+    await shareOrDownload(blob,safeName(item.title)+".docx");
+  }catch(err){alert("Impossible de créer le document Word. Vérifie la connexion Internet pour charger le module DOCX. "+(err.message||err))}
+}
+$("exportPdf").onclick=exportPdf;
+$("exportWord").onclick=exportWord;
