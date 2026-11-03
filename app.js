@@ -9,7 +9,7 @@ function put(item){return new Promise((res,rej)=>{const r=tx("readwrite").put(it
 function getAll(){return new Promise((res,rej)=>{const r=tx().getAll();r.onsuccess=()=>res(r.result.sort((a,b)=>b.createdAt-a.createdAt));r.onerror=()=>rej(r.error)})}
 function getOne(id){return new Promise((res,rej)=>{const r=tx().get(id);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 function remove(id){return new Promise((res,rej)=>{const r=tx("readwrite").delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
-function updateTimer(){const sec=Math.floor((elapsedBeforePause+(recorder&&!recorder.paused?(Date.now()-startedAt)/1000:0)));$("timer").textContent=[Math.floor(sec/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,"0")).join(":")}
+function updateTimer(){const sec=Math.floor(elapsedBeforePause+(recorder&&recorder.state==="recording"?(Date.now()-startedAt)/1000:0));$("timer").textContent=[Math.floor(sec/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,"0")).join(":")}
 function setRecordingUI(state){$("startBtn").disabled=state!=="idle";$("pauseBtn").disabled=state!=="recording"&&state!=="paused";$("stopBtn").disabled=state==="idle";$("pauseBtn").textContent=state==="paused"?"▶ Reprendre":"Ⅱ Pause";$("recordDot").classList.toggle("live",state==="recording");$("recordHint").textContent=state==="recording"?"Enregistrement en cours":state==="paused"?"Enregistrement en pause":"Prêt à enregistrer"}
 async function startRecording(){
   const subject=$("subject").value.trim(); if(!subject){alert("Indique d'abord la matière.");$("subject").focus();return}
@@ -33,14 +33,14 @@ async function startRecording(){
   }catch(err){alert("Impossible d'accéder au microphone. Vérifie les autorisations de Safari. "+err.message)}
 }
 function pauseRecording(){if(!recorder)return;if(recorder.state==="recording"){recorder.pause();elapsedBeforePause+=(Date.now()-startedAt)/1000;setRecordingUI("paused")}else if(recorder.state==="paused"){recorder.resume();startedAt=Date.now();setRecordingUI("recording")}updateTimer()}
-function stopRecording(){if(recorder&&recorder.state!=="inactive"){recorder.stop();}}
+function stopRecording(){if(recorder&&recorder.state!=="inactive"){if(recorder.state==="recording")elapsedBeforePause+=(Date.now()-startedAt)/1000;recorder.stop();}}
 async function renderCourses(){
   const items=await getAll(), q=$("search").value.toLowerCase();$("courseCount").textContent=items.length;
   const filtered=items.filter(x=>(x.subject+" "+x.title).toLowerCase().includes(q));const list=$("courseList");list.innerHTML="";
   if(!filtered.length){list.innerHTML='<div class="empty">Aucun cours trouvé.</div>';return}
   for(const item of filtered){const el=document.createElement("div");el.className="course-item";const info=document.createElement("div");const strong=document.createElement("strong");strong.textContent=item.title;const small=document.createElement("small");small.textContent=item.subject+" · "+fmtDate(item.createdAt)+" · "+durationText(item.duration);info.append(strong,small);const btn=document.createElement("button");btn.className="btn btn-outline";btn.textContent="Ouvrir";btn.onclick=()=>openCourse(item.id);el.append(info,btn);list.append(el)}
 }
-function durationText(s){s=s||0;return Math.floor(s/60)+" min"}
+function durationText(s){s=Math.max(0,Math.floor(s||0));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;if(h)return h+" h "+m+" min";if(m)return m+" min "+r+" s";return r+" s"}
 async function openCourse(id){const item=await getOne(id);if(!item)return;activeCourseId=id;$("dialogTitle").textContent=item.title;$("dialogMeta").textContent=item.subject+" · "+fmtDate(item.createdAt)+" · "+durationText(item.duration);$("transcript").value=item.transcript||"";$("courseDialog").showModal()}
 async function saveTranscript(){const item=await getOne(activeCourseId);if(!item)return;item.transcript=$("transcript").value;await put(item);alert("Notes enregistrées.");await renderCourses()}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
